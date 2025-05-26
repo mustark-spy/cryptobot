@@ -37,5 +37,5 @@ REST_CLIENT = Trade(
     key=API_KEY,
     secret=API_SECRET,
     passphrase=API_PASSPHRASE,
-    is_sandbox=SANDBOX
+    sandbox=SANDBOX
 )
