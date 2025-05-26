@@ -1,11 +1,11 @@
 import threading
+import requests
 import logging
-import os
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-from config import TG_TOKEN, TG_CHAT_ID, SANDBOX, LOG_LEVEL
+from config import TG_TOKEN, TG_CHAT_ID, LOG_LEVEL, SANDBOX
 from strategy import AdaptiveGridStrategy
 
 logging.basicConfig(level=logging.INFO)
@@ -13,56 +13,43 @@ logger = logging.getLogger(__name__)
 
 strategy = AdaptiveGridStrategy()
 
-# Initialise l'application Telegram
 app = ApplicationBuilder().token(TG_TOKEN).build()
 
-def send_telegram(msg: str, level: str = "INFO"):
-    """Envoie un message sur TG si son niveau >= LOG_LEVEL."""
-    levels = {"DEBUG": 10, "INFO": 20, "ERROR": 40}
+def send_telegram(msg, level="INFO"):
+    levels = {"DEBUG":10, "INFO":20, "ERROR":40}
     if levels.get(level, 0) >= levels.get(LOG_LEVEL, 20):
-        app.bot.send_message(chat_id=TG_CHAT_ID, text=msg)
+        requests.post(
+            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+            json={"chat_id": TG_CHAT_ID, "text": msg}
+        )
 
-# Détournement de print() pour router vers Telegram
 import builtins
 _orig_print = builtins.print
 def print(*args, level="INFO", **kwargs):
     _orig_print(*args, **kwargs)
-    send_telegram(" ".join(map(str, args)), level=level)
+    send_telegram(" ".join(map(str,args)), level=level)
 builtins.print = print
 
-async def pnl_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler de /pnl : résumé du PnL et historique."""
-    total_pnl = sum(t['profit'] for t in strategy.fill_history)
-    open_pos = len(strategy.pending_positions)
-    history = strategy.fill_history[-10:]
-
+async def pnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total = sum(r['profit'] for r in strategy.fill_history)
+    open_count = len(strategy.pending)
+    hist = strategy.fill_history[-10:]
     lines = [
         "📊 *Statut PnL*",
-        f"Realized PnL : `{total_pnl:.4f}` USDT",
-        f"Positions ouvertes : `{open_pos}`",
+        f"Realized PnL: `{total:.4f}` USDT",
+        f"Open positions: `{open_count}`",
         "",
-        f"*Historique (derniers {len(history)})*"
+        "*Derniers trades*"
     ]
-    for t in history:
-        ot = datetime.fromtimestamp(t['open_time']).strftime('%Y-%m-%d %H:%M')
-        lines.append(
-            f"{ot} | {t['open_side']} {t['size']:.6f}@{t['open_price']:.2f} → {t['close_price']:.2f}"
-            f" (`{t['profit']:.4f}`)"
-        )
+    for r in hist:
+        ts = datetime.fromtimestamp(r['timestamp']).strftime('%Y-%m-%d %H:%M')
+        lines.append(f"{ts} | {r['side']} {r['size']:.6f}@{r['open_price']:.2f}→{r['close_price']:.2f} (`{r['profit']:.4f}`)")
+    await update.message.reply_markdown("".join(lines))
 
-    await update.message.reply_markdown("\n".join(lines))
-
-# Enregistre le handler
-app.add_handler(CommandHandler('pnl', pnl_command))
+app.add_handler(CommandHandler("pnl", pnl))
 
 if __name__ == "__main__":
-    start_msg = "🤖 Démarrage du bot de trading Grid Adaptive"
-    if SANDBOX:
-        start_msg += " (SANDBOX MODE)"
-    print(start_msg, level="INFO")
-
-    # Lancer la stratégie en arrière-plan
+    start = "🤖 Bot démarre" + (" (SANDBOX)" if SANDBOX else "")
+    print(start, level="INFO")
     threading.Thread(target=strategy.start, daemon=True).start()
-
-    # Démarrer le bot Telegram
     app.run_polling()
