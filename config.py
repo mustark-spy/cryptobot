@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from kucoin.client import Trade
+from kucoin.client import Client
 
 load_dotenv()
 
