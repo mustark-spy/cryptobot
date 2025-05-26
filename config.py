@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from kucoin.client import Client
+from kucoin.client import Trade
 
 load_dotenv()
 
@@ -32,10 +32,12 @@ BUDGET = float(os.getenv("BUDGET", 1000.0))
 DATA_DIR = os.getenv("DATA_DIR", "./data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
+API_URL = "https://openapi-sandbox.kucoin.com" if SANDBOX else None
+
 # Client KuCoin
-REST_CLIENT = Client(
+REST_CLIENT = Trade(
     key=API_KEY,
     secret=API_SECRET,
     passphrase=API_PASSPHRASE,
-    sandbox=SANDBOX
+    url=API_URL
 )
