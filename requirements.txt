@@ -1,0 +1,5 @@
+python-dotenv
+kucoin-python
+ta
+pandas
+python-telegram-bot
