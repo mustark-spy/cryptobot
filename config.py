@@ -1,25 +1,29 @@
 import os
 from dotenv import load_dotenv
-from kucoin.client import Trade
+from kucoin_universal_sdk.api import DefaultClient
+from kucoin_universal_sdk.model import ClientOptionBuilder, TransportOptionBuilder, GLOBAL_FUTURES_API_ENDPOINT
 
 load_dotenv()
-
-# Mode sandbox (test)
 SANDBOX = os.getenv("SANDBOX", "false").lower() == "true"
-
-# Niveau de logs à remonter sur Telegram : DEBUG, INFO, ERROR
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
-# KuCoin API
 API_KEY = os.getenv("KUCOIN_API_KEY")
 API_SECRET = os.getenv("KUCOIN_API_SECRET")
 API_PASSPHRASE = os.getenv("KUCOIN_API_PASSPHRASE")
 
-# Telegram
-TG_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TG_CHAT_ID = os.getenv("TG_CHAT_ID")
+# SDK setup
+transport_option = TransportOptionBuilder().set_keep_alive(True).set_max_pool_size(10).build()
+client_option = (
+    ClientOptionBuilder()
+    .set_key(API_KEY)
+    .set_secret(API_SECRET)
+    .set_passphrase(API_PASSPHRASE)
+    .set_futures_endpoint(GLOBAL_FUTURES_API_ENDPOINT)
+    .set_transport_option(transport_option)
+    .build()
+)
+CLIENT = DefaultClient(client_option)
 
-# Paramètres de la stratégie
 SYMBOL = os.getenv("SYMBOL", "BTC-USDT")
 LEVERAGE = int(os.getenv("LEVERAGE", 10))
 GRID_SIZE = int(os.getenv("GRID_SIZE", 10))
@@ -28,16 +32,5 @@ STOP_LOSS = float(os.getenv("STOP_LOSS", 0.01))
 TAKE_PROFIT = float(os.getenv("TAKE_PROFIT", 0.02))
 BUDGET = float(os.getenv("BUDGET", 1000.0))
 
-# Répertoire pour stocker les données
 DATA_DIR = os.getenv("DATA_DIR", "./data")
 os.makedirs(DATA_DIR, exist_ok=True)
-
-API_URL = "https://openapi-sandbox.kucoin.com" if SANDBOX else None
-
-# Client KuCoin
-REST_CLIENT = Trade(
-    key=API_KEY,
-    secret=API_SECRET,
-    passphrase=API_PASSPHRASE,
-    url=API_URL
-)
