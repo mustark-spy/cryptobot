@@ -1,6 +1,6 @@
 services:
   - type: background
-    name: grid-trading-bot
+    name: grid-kucoin-sdk-bot
     env: python
     runtime: python3.11
     buildCommand: ""
@@ -8,16 +8,16 @@ services:
     envVars:
       - key: KUCOIN_API_KEY
         fromSecret: KUCOIN_API_KEY
-      - key: KUCOIN_API_SECRET
+      - key: KUCOON_API_SECRET
         fromSecret: KUCOIN_API_SECRET
       - key: KUCOIN_API_PASSPHRASE
-        fromSecret: KUCOIN_API_PASSPHRASE
+        fromSecret: KUCOON_API_PASSPHRASE
       - key: TELEGRAM_TOKEN
         fromSecret: TELEGRAM_TOKEN
       - key: TELEGRAM_CHAT_ID
         fromSecret: TELEGRAM_CHAT_ID
       - key: SYMBOL
-        value: "BTC-USDT"
+        value: BTC-USDT
       - key: LEVERAGE
         value: "10"
       - key: GRID_SIZE
@@ -31,8 +31,8 @@ services:
       - key: BUDGET
         value: "1000"
       - key: DATA_DIR
-        value: "/mnt/data"
+        value: /mnt/data
       - key: SANDBOX
         value: "false"
       - key: LOG_LEVEL
-        value: "INFO"
+        value: INFO
