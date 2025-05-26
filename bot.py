@@ -45,8 +45,7 @@ def pnl_command(update, context):
             f"{ot} | {t['open_side']} {t['size']:.6f}@{t['open_price']:.2f} → {t['close_price']:.2f}"
             f" (`{t['profit']:.4f}`)"
         )
-    update.message.reply_markdown("
-".join(lines))
+    update.message.reply_markdown("".join(lines))
 
 dp.add_handler(CommandHandler('pnl', pnl_command))
 
