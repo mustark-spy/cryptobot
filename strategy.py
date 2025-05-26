@@ -2,38 +2,40 @@ import os
 import json
 import time
 import threading
-import traceback
-from ta.volatility import AverageTrueRange
+from datetime import datetime
 import pandas as pd
-from kucoin.ws_client import KucoinWsClient
+from ta.volatility import AverageTrueRange
 
-from config import REST_CLIENT, SYMBOL, GRID_SIZE, BUDGET, ADJUST_INTERVAL, LEVERAGE, STOP_LOSS, TAKE_PROFIT, DATA_DIR, SANDBOX
+from config import CLIENT, SYMBOL, GRID_SIZE, BUDGET, ADJUST_INTERVAL, LEVERAGE, STOP_LOSS, TAKE_PROFIT, DATA_DIR
+from kucoin_universal_sdk.generate.futures.trade.create_order import CreateOrderReqBuilder
+from kucoin_universal_sdk.generate.futures.trade.cancel_order import CancelOrderReqBuilder
+from kucoin_universal_sdk.generate.futures.market.get_candles import GetHistoricCandlesReqBuilder
 
 HISTORY_FILE = os.path.join(DATA_DIR, "fill_history.json")
 
 class AdaptiveGridStrategy:
     def __init__(self):
-        # Charge l'historique existant
-        if os.path.isdir(DATA_DIR) and os.path.isfile(HISTORY_FILE):
+        if os.path.isfile(HISTORY_FILE):
             with open(HISTORY_FILE, 'r') as f:
                 self.fill_history = json.load(f)
         else:
             self.fill_history = []
 
         self.orders = {}
-        self.pending_positions = {}
+        self.pending = {}
         self.running = False
 
     def save_history(self):
-        try:
-            with open(HISTORY_FILE, 'w') as f:
-                json.dump(self.fill_history, f, indent=2)
-        except Exception as e:
-            print(f"Erreur écriture historique: {e}")
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(self.fill_history, f, indent=2)
 
-    def fetch_klines(self, interval='1min', limit=50):
-        data = REST_CLIENT.get_kline_data(symbol=SYMBOL, klineType=interval, limit=limit)
-        df = pd.DataFrame(data, columns=['time','open','high','low','close','volume']).astype(float)
+    def fetch_klines(self):
+        now = int(time.time())
+        past = now - ADJUST_INTERVAL * 60 * 2
+        market_api = CLIENT.rest_service().get_futures_market_api()
+        req = GetHistoricCandlesReqBuilder()             .set_symbol(SYMBOL)             .set_start_at(str(past))             .set_end_at(str(now))             .set_granularity("60")             .build()
+        resp = market_api.get_historic_candles(req)
+        df = pd.DataFrame(resp.data, columns=['time','open','close','high','low','volume']).astype(float)
         return df
 
     def calc_bounds(self):
@@ -49,95 +51,73 @@ class AdaptiveGridStrategy:
         step = (upper - lower) / GRID_SIZE
         mid = (lower + upper) / 2
         qty = BUDGET / mid
-        print(
-            f"💡 Grille définie :\n"
-            f"  • Borne basse = {lower:.2f}  • Borne haute = {upper:.2f}\n"
-            f"  • Spread = {upper-lower:.2f}  • Increment = {step:.2f}\n"
-            f"  • Orders = {GRID_SIZE+1}  • Qty/order = {qty:.6f}"
-        )
+        print(f"💡 Grille définie : Basse={lower:.2f}, Haute={upper:.2f}, Spread={(upper-lower):.2f}, Increment={step:.2f}, Orders={GRID_SIZE+1}, Qty/order={qty:.6f}")
         for i in range(GRID_SIZE + 1):
             price = lower + step * i
             side = 'buy' if i < GRID_SIZE/2 else 'sell'
             self.place_order(price, qty, side)
 
     def place_order(self, price, size, side, mirror=False, parent_id=None):
-        try:
-            resp = REST_CLIENT.create_limit_order(
-                symbol=SYMBOL, side=side,
-                size=str(size), price=str(price),
-                leverage=LEVERAGE, stop=False
-            )
-            oid = resp['orderId']
-            ts = time.time()
-            self.orders[oid] = {
-                'side': side, 'price': price, 'size': size,
-                'timestamp': ts, 'mirror': mirror, 'parent_id': parent_id
-            }
-            print(f"Placed {side} @ {price:.2f} (mirror={mirror}), id={oid}")
-            return oid
-        except Exception as e:
-            print(f"Error placing {side} order @ {price}: {e}")
-            traceback.print_exc()
+        order_api = CLIENT.rest_service().get_futures_trade_api()
+        req = CreateOrderReqBuilder()             .set_client_oid(str(int(time.time()*1000)))             .set_symbol(SYMBOL)             .set_side(side)             .set_type("limit")             .set_price(str(price))             .set_size(str(size))             .set_leverage(str(LEVERAGE))             .build()
+        resp = order_api.create_order(req)
+        oid = resp.order_id
+        self.orders[oid] = {'side': side, 'price': price, 'size': size, 'mirror': mirror, 'parent_id': parent_id}
+        print(f"Placed {side}@{price:.2f} id={oid}")
 
-    def on_filled(self, order_id, side, price, size):
-        info = self.orders.pop(order_id, None)
+    def on_filled(self, trade):
+        oid = trade['order_id']
+        info = self.orders.pop(oid, None)
         if not info:
             return
-        ts = time.time()
         if not info['mirror']:
-            self.pending_positions[order_id] = {
-                'side': side, 'price': price, 'size': size, 'timestamp': info['timestamp']
-            }
-            mirror_side = 'sell' if side=='buy' else 'buy'
-            mirror_price = price * (1 + TAKE_PROFIT) if mirror_side=='sell' else price * (1 - TAKE_PROFIT)
-            self.place_order(mirror_price, size, mirror_side, mirror=True, parent_id=order_id)
+            self.pending[oid] = info
+            mirror_side = 'sell' if info['side']=='buy' else 'buy'
+            mirror_price = info['price']*(1+TAKE_PROFIT) if mirror_side=='sell' else info['price']*(1-TAKE_PROFIT)
+            self.place_order(mirror_price, info['size'], mirror_side, mirror=True, parent_id=oid)
         else:
-            pid = info['parent_id']
-            open_info = self.pending_positions.pop(pid, None)
+            open_info = self.pending.pop(info['parent_id'], None)
             if open_info:
-                profit = (price - open_info['price']) * size if open_info['side']=='buy' else (open_info['price'] - price) * size
-                trade = {
-                    'open_order_id': pid, 'open_side': open_info['side'],
-                    'open_price': open_info['price'], 'open_time': open_info['timestamp'],
-                    'close_price': price, 'close_time': ts,
-                    'size': size, 'profit': profit
+                profit = (info['price'] - open_info['price']) * info['size'] if open_info['side']=='buy' else (open_info['price'] - info['price']) * info['size']
+                record = {
+                    'order_id': oid,
+                    'side': open_info['side'],
+                    'open_price': open_info['price'],
+                    'close_price': info['price'],
+                    'size': info['size'],
+                    'profit': profit,
+                    'timestamp': int(time.time())
                 }
-                self.fill_history.append(trade)
+                self.fill_history.append(record)
                 self.save_history()
-                print(f"✅ Trade clos: profit {profit:.4f} USDT")
+                print(f"✅ Trade clos: profit={profit:.4f} USDT")
 
-    def run_ws(self):
-        def message_handler(msg):
-            try:
-                if msg.get('type') == 'match':
-                    data = msg['data']
-                    if data['symbol'] == SYMBOL and data['side'] in ['buy','sell']:
-                        oid = data['orderId']
-                        if oid in self.orders:
-                            self.on_filled(oid, data['side'], float(data['price']), float(data['size']))
-            except Exception as e:
-                print(f"WS handler error: {e}")
-                traceback.print_exc()
-
-        ku_ws = KucoinWsClient(on_message=message_handler, is_sandbox=SANDBOX)
-        ku_ws.subscribe_trade(symbol=SYMBOL)
+    def poll_fills(self):
+        seen = set()
+        trade_api = CLIENT.rest_service().get_futures_trade_api()
+        while self.running:
+            trades = trade_api.get_fills({"symbol": SYMBOL}).data
+            for t in trades:
+                tid = t['trade_id']
+                if tid not in seen:
+                    seen.add(tid)
+                    self.on_filled({'order_id': t['order_id'], 'price': float(t['price']), 'size': float(t['size']), 'side': t['side']})
+            time.sleep(5)
 
     def start(self):
         self.running = True
-        print("🔄 Initialisation de la grille")
-        threading.Thread(target=self.run_ws, daemon=True).start()
+        threading.Thread(target=self.poll_fills, daemon=True).start()
         self.build_grid()
         while self.running:
             time.sleep(ADJUST_INTERVAL * 60)
-            print("🔄 Mise à jour de la grille (recalcul ATR)")
-            for oid in list(self.orders.keys()):
-                try:
-                    REST_CLIENT.cancel_order(order_id=oid)
-                except:
-                    pass
+            print("🔄 Rebuild grille")
+            cancel_api = CLIENT.rest_service().get_futures_trade_api()
+            for oid in list(self.orders):
+                req = CancelOrderReqBuilder().set_symbol(SYMBOL).set_order_id(oid).build()
+                cancel_api.cancel_order(req)
             self.orders.clear()
             self.build_grid()
 
     def stop(self):
         self.running = False
-        print("Strategy stopped.")
+        print("Strategy stopped")
