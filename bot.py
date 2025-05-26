@@ -38,18 +38,15 @@ async def pnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 *Statut PnL*",
         f"Realized PnL: `{total:.4f}` USDT",
         f"Open positions: `{open_count}`",
-        "",
-        "*Derniers trades*"
+        "",        "*Derniers trades*"
     ]
     for r in hist:
         ts = datetime.fromtimestamp(r['timestamp']).strftime('%Y-%m-%d %H:%M')
-        lines.append(f"{ts} | {r['side']} {r['size']:.6f}@{r['open_price']:.2f}→{r['close_price']:.2f} (`{r['profit']:.4f}`)")
-    await update.message.reply_markdown("".join(lines))
+        lines.append(f"{ts} | {r['side']} {r['size']:.6f}@{r['open_price']:.2f}→{r['close_price']:.2f} (`{r['profit']:.4f}`)")    await update.message.reply_markdown("".join(lines))
 
 app.add_handler(CommandHandler("pnl", pnl))
 
 if __name__ == "__main__":
-    start = "🤖 Bot démarre" + (" (SANDBOX)" if SANDBOX else "")
+    start = "🤖 Bot démarre" + " (SANDBOX)" if SANDBOX else "🤖 Bot démarre"
     print(start, level="INFO")
-    threading.Thread(target=strategy.start, daemon=True).start()
-    app.run_polling()
+    threading.Thread(target=strategy.start, daemon=True).start()    app.run_polling()
