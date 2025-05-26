@@ -33,7 +33,7 @@ DATA_DIR = os.getenv("DATA_DIR", "./data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # Client KuCoin
-REST_CLIENT = Trade(
+REST_CLIENT = Client(
     key=API_KEY,
     secret=API_SECRET,
     passphrase=API_PASSPHRASE,
