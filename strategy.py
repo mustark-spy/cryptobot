@@ -33,7 +33,12 @@ class AdaptiveGridStrategy:
         now = int(time.time())
         past = now - ADJUST_INTERVAL * 60 * 2
         market_api = CLIENT.rest_service().get_futures_market_api()
-        req = GetHistoricCandlesReqBuilder()             .set_symbol(SYMBOL)             .set_start_at(str(past))             .set_end_at(str(now))             .set_granularity("60")             .build()
+        req = GetHistoricCandlesReqBuilder() \
+            .set_symbol(SYMBOL) \
+            .set_start_at(str(past)) \
+            .set_end_at(str(now)) \
+            .set_granularity("60") \
+            .build()
         resp = market_api.get_historic_candles(req)
         df = pd.DataFrame(resp.data, columns=['time','open','close','high','low','volume']).astype(float)
         return df
@@ -59,7 +64,15 @@ class AdaptiveGridStrategy:
 
     def place_order(self, price, size, side, mirror=False, parent_id=None):
         order_api = CLIENT.rest_service().get_futures_trade_api()
-        req = CreateOrderReqBuilder()             .set_client_oid(str(int(time.time()*1000)))             .set_symbol(SYMBOL)             .set_side(side)             .set_type("limit")             .set_price(str(price))             .set_size(str(size))             .set_leverage(str(LEVERAGE))             .build()
+        req = CreateOrderReqBuilder() \
+            .set_client_oid(str(int(time.time()*1000))) \
+            .set_symbol(SYMBOL) \
+            .set_side(side) \
+            .set_type("limit") \
+            .set_price(str(price)) \
+            .set_size(str(size)) \
+            .set_leverage(str(LEVERAGE)) \
+            .build()
         resp = order_api.create_order(req)
         oid = resp.order_id
         self.orders[oid] = {'side': side, 'price': price, 'size': size, 'mirror': mirror, 'parent_id': parent_id}
